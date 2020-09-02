@@ -1,7 +1,11 @@
 package urlshort
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
+
+	"gopkg.in/yaml.v2"
 )
 
 // MapHandler will return an http.HandlerFunc (which also
@@ -11,11 +15,19 @@ import (
 // If the path is not provided in the map, then the fallback
 // http.Handler will be called instead.
 func MapHandler(pathsToUrls map[string]string, fallback http.Handler) http.HandlerFunc {
-	//	TODO: Implement this...
-	return nil
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		for path, url := range pathsToUrls {
+			if r.URL.Path == path {
+				println("redirecting to", url)
+				http.Redirect(w, r, url, 301)
+			}
+		}
+		fallback.ServeHTTP(w, r)
+	}
 }
 
-// YAMLHandler will parse the provided YAML and then return
+// FileHandler will parse the provided YAML or JSON and then return
 // an http.HandlerFunc (which also implements http.Handler)
 // that will attempt to map any paths to their corresponding
 // URL. If the path is not provided in the YAML, then the
@@ -31,7 +43,50 @@ func MapHandler(pathsToUrls map[string]string, fallback http.Handler) http.Handl
 //
 // See MapHandler to create a similar http.HandlerFunc via
 // a mapping of paths to urls.
-func YAMLHandler(yml []byte, fallback http.Handler) (http.HandlerFunc, error) {
-	// TODO: Implement this...
-	return nil, nil
+func FileHandler(data []byte, fallback http.Handler) (http.HandlerFunc, error) {
+	fileType := "yaml"
+	if bytes.Contains(data, []byte("{")) {
+		fileType = "json"
+	}
+
+	urls, parseErr := parseFile(fileType, data)
+
+	// call MapHandler
+	return MapHandler(mapFromUrls(urls), fallback), parseErr
+}
+
+func parseFile(fileType string, data []byte) ([]urlObj, error) {
+
+	urls := []urlObj{}
+	var err error
+	switch fileType {
+	case "yaml":
+		err = yaml.Unmarshal(data, &urls)
+	default:
+		err = json.Unmarshal(data, &urls)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return urls, nil
+}
+
+func mapFromUrls(urls []urlObj) map[string]string {
+	//array to map:
+	urlMap := make(map[string]string)
+
+	for _, o := range urls {
+		urlMap[o.Path] = o.URL
+	}
+
+	return urlMap
+}
+
+type urlObj struct {
+	//  the Unmarshal function requires public Uppercase properties
+	URL      string `yaml:"url,omitempty"` // tags
+	Path     string `yaml:"path,omitempty"`
+	OtherVal string `yaml:"-"` // just for fun
 }
